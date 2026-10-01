@@ -48,32 +48,52 @@ VECTORIZER_PATH = os.path.join(MODELS_DIR, "vectorizer.pkl")
 # Data loading & cleaning
 # ---------------------------------------------------------------------------
 
-def load_and_clean_data(path: str) -> pd.DataFrame:
-    """Load dataset and return a cleaned DataFrame."""
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"Dataset file not found at {path}")
+def load_and_clean_data(paths) -> pd.DataFrame:
+    """Load one or multiple dataset files and return a unified, cleaned DataFrame."""
+    if isinstance(paths, (str, os.PathLike)):
+        paths = [paths]
 
-    logger.info("Loading data from %s", path)
-    df = pd.read_csv(path, encoding="latin-1")
+    dfs = []
+    for path in paths:
+        if not os.path.exists(path):
+            logger.warning("Dataset file not found at %s, skipping.", path)
+            continue
 
-    # Handle column variations in SMS Spam Collection dataset
-    if "v1" in df.columns and "v2" in df.columns:
-        df = df[["v1", "v2"]]
-        df.columns = ["target", "text"]
-    elif "target" not in df.columns or "text" not in df.columns:
-        raise ValueError("CSV must contain either (v1, v2) or (target, text) columns.")
+        logger.info("Loading data from %s", path)
+        df = pd.read_csv(path, encoding="latin-1")
 
-    # Encode target: 'spam' -> 1, 'ham' -> 0
-    if df["target"].dtype == object:
-        df["target"] = df["target"].astype(str).str.lower().map({"spam": 1, "ham": 0})
-        df["target"] = df["target"].fillna(0).astype(int)
+        # Handle column variations across different dataset sources
+        if "v1" in df.columns and "v2" in df.columns:
+            df = df[["v1", "v2"]].rename(columns={"v1": "target", "v2": "text"})
+        elif "spam" in df.columns and "text" in df.columns:
+            df = df[["spam", "text"]].rename(columns={"spam": "target"})
+        elif "target" in df.columns and "text" in df.columns:
+            df = df[["target", "text"]]
+        else:
+            raise ValueError(
+                f"CSV at {path} must contain (v1, v2), (spam, text), or (target, text) columns."
+            )
 
-    # Drop duplicates
-    before = len(df)
-    df = df.drop_duplicates(subset=["text"], keep="first").reset_index(drop=True)
-    logger.info("Dropped %d duplicates (%d -> %d rows)", before - len(df), before, len(df))
+        # Encode target: 'spam' / 1 -> 1, 'ham' / 0 -> 0
+        if df["target"].dtype == object:
+            df["target"] = df["target"].astype(str).str.lower().map({"spam": 1, "ham": 0})
+            df["target"] = df["target"].fillna(0).astype(int)
+        else:
+            df["target"] = df["target"].astype(int)
 
-    return df
+        dfs.append(df)
+
+    if not dfs:
+        raise FileNotFoundError("No valid dataset files found for training.")
+
+    combined_df = pd.concat(dfs, ignore_index=True)
+
+    # Drop duplicates across combined corpus
+    before = len(combined_df)
+    combined_df = combined_df.drop_duplicates(subset=["text"], keep="first").reset_index(drop=True)
+    logger.info("Dropped %d duplicates (%d -> %d total rows)", before - len(combined_df), before, len(combined_df))
+
+    return combined_df
 
 
 def preprocess_column(df: pd.DataFrame) -> pd.DataFrame:
@@ -159,7 +179,16 @@ def save_artifacts(model, vectorizer, model_path: str, vectorizer_path: str):
 # ---------------------------------------------------------------------------
 
 def main():
-    df = load_and_clean_data(DATA_PATH)
+    candidate_paths = [
+        os.path.join(PROJECT_ROOT, "spam.csv"),
+        os.path.join(PROJECT_ROOT, "spam_sms.csv"),
+        os.path.join(PROJECT_ROOT, "emails.csv"),
+        os.path.join(PROJECT_ROOT, "data", "spam.csv"),
+    ]
+    # Filter only existing paths
+    existing_paths = [p for p in candidate_paths if os.path.exists(p)]
+
+    df = load_and_clean_data(existing_paths)
     df = preprocess_column(df)
 
     best_model, vectorizer = train_and_evaluate(df)
@@ -173,3 +202,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

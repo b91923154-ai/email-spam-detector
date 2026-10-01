@@ -2,15 +2,26 @@
 Streamlit UI for the Email/SMS Spam Detection system.
 
 Usage:
-    streamlit run src/app.py
+    streamlit run app.py
 """
 
+import os
+import sys
 import pandas as pd
 import streamlit as st
+
+# Fix Windows console encoding issues with Streamlit 1.64
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
 
 # ---------- Page configuration ----------
 st.set_page_config(
     page_title="AI Email & SMS Spam Detector",
+    page_icon="🛡️",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -20,7 +31,7 @@ st.markdown(
     """
     <style>
     .main-header {
-        font-size: 2.3rem;
+        font-size: 2.2rem;
         font-weight: 700;
         background: linear-gradient(135deg, #2563eb, #1e40af);
         -webkit-background-clip: text;
@@ -31,14 +42,6 @@ st.markdown(
         font-size: 1.05rem;
         color: #4b5563;
         margin-bottom: 1.5rem;
-    }
-    .metric-card {
-        background-color: #f8fafc;
-        border: 1px solid #e2e8f0;
-        border-radius: 10px;
-        padding: 1rem;
-        text-align: center;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     }
     .result-spam {
         background-color: #fef2f2;
@@ -61,7 +64,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ---------- Lazy-import predict & preprocessing ----------
+# ---------- Model & Preprocessing Imports ----------
 try:
     from src.predict import predict
     from src.preprocessing import transform_text
@@ -74,36 +77,60 @@ except ImportError:
         from data_preprocessing import transform_text
 
 
+# ---------- Caching ----------
+@st.cache_resource(show_spinner="Loading AI model artifacts...")
+def load_prediction_engine():
+    """Warm up prediction engine once."""
+    try:
+        predict("warmup test")
+    except Exception:
+        pass
+    return True
+
+
+load_prediction_engine()
+
+
+# ---------- Session State Initialization ----------
+if "input_text_key" not in st.session_state:
+    st.session_state["input_text_key"] = ""
+
+
+def set_sample(text: str):
+    """Callback to set sample text in text area widget."""
+    st.session_state["input_text_key"] = text
+
+
 # ---------- Sidebar ----------
 with st.sidebar:
-    st.title("Spam Guard AI")
-    st.caption("Principal Engineer AI Engine v1.0")
+    st.title("🛡️ Spam Guard AI")
+    st.caption("Production Engine v1.0")
 
     st.divider()
 
     st.markdown("### Model Metrics")
     col_s1, col_s2 = st.columns(2)
-    col_s1.metric("Accuracy", "98.65%")
-    col_s2.metric("Precision", "98.13%")
+    col_s1.metric("Accuracy", "97.26%")
+    col_s2.metric("Precision", "94.27%")
 
     col_s3, col_s4 = st.columns(2)
-    col_s3.metric("Recall", "89.74%")
-    col_s4.metric("F1-Score", "0.9375")
+    col_s3.metric("Recall", "91.22%")
+    col_s4.metric("F1-Score", "92.72%")
 
     st.divider()
 
     st.markdown(
         """
         **Architecture Stack**:
-        - **Preprocessing**: NLTK Stemming & Stopword Filtering
+        - **Preprocessing**: High-Speed Porter Stemming & Stopword Filtering
         - **Vectorisation**: TF-IDF (L2-Normalised)
         - **Classifier**: Multinomial Naive Bayes (Zero-DLL NumPy Engine)
         """
     )
-    st.caption("Production Ready · Ultra-Fast Inference")
+    st.caption("Production Ready · Instant Inference")
 
 
-# ---------- Main Content ----------
+# ---------- Main Header ----------
 st.markdown('<div class="main-header">Email & SMS Spam Detector</div>', unsafe_allow_html=True)
 st.markdown(
     '<div class="sub-header">Instantly classify messages using advanced Machine Learning & NLP analysis.</div>',
@@ -117,76 +144,103 @@ with tab1:
     st.markdown("#### Quick Pre-loaded Samples")
     sample_cols = st.columns(4)
 
-    sample_text = ""
-    if sample_cols[0].button("Claim Prize (Spam)"):
-        sample_text = "WINNER!! You have been selected to receive a $1000 cash prize! Call 09061701461 to claim NOW!"
-    elif sample_cols[1].button("Meeting Invite (Ham)"):
-        sample_text = "Hey John, are we still meeting for lunch at 12:30 PM tomorrow?"
-    elif sample_cols[2].button("Bank Fraud Alert (Spam)"):
-        sample_text = "URGENT: Your bank account has been compromised. Verify your credentials immediately at http://bit.ly/fake-bank"
-    elif sample_cols[3].button("Friend Chat (Ham)"):
-        sample_text = "Can you send me the python script when you get home? Thanks!"
+    sample_cols[0].button(
+        "Claim Prize (Spam)",
+        on_click=set_sample,
+        args=("WINNER!! You have been selected to receive a $1000 cash prize! Call 09061701461 to claim NOW!",),
+        use_container_width=True,
+    )
 
-    input_text = st.text_area(
+    sample_cols[1].button(
+        "Meeting Invite (Ham)",
+        on_click=set_sample,
+        args=("Hey John, are we still meeting for lunch at 12:30 PM tomorrow?",),
+        use_container_width=True,
+    )
+
+    sample_cols[2].button(
+        "Bank Fraud Alert (Spam)",
+        on_click=set_sample,
+        args=("URGENT: Your bank account has been compromised. Verify your credentials immediately at http://bit.ly/fake-bank",),
+        use_container_width=True,
+    )
+
+    sample_cols[3].button(
+        "Friend Chat (Ham)",
+        on_click=set_sample,
+        args=("Can you send me the python script when you get home? Thanks!",),
+        use_container_width=True,
+    )
+
+    # Text Area bound directly to st.session_state["input_text_key"]
+    user_input = st.text_area(
         "Enter Message Body",
-        value=sample_text,
+        key="input_text_key",
         height=160,
         placeholder="Type or paste an email or SMS message here …",
     )
 
     col_action1, col_action2 = st.columns([1, 4])
-    predict_clicked = col_action1.button("Analyze Message", type="primary", use_container_width=True)
+    analyze_clicked = col_action1.button("Analyze Message", type="primary", use_container_width=True)
 
-    if predict_clicked or (sample_text and input_text == sample_text):
-        if not input_text or not input_text.strip():
-            st.warning("Please enter some text before analyzing.")
-        else:
-            try:
-                result = predict(input_text)
-                label = result["label"]
-                confidence = result["confidence"]
+    # Automatically analyze if user clicked Analyze Message OR if text is present
+    current_text = st.session_state.get("input_text_key", "").strip()
 
-                st.divider()
+    if analyze_clicked or (current_text and ("last_analyzed_text" in st.session_state and st.session_state["last_analyzed_text"] == current_text)):
+        st.session_state["last_analyzed_text"] = current_text
 
-                res_col1, res_col2 = st.columns([2, 1])
+    if current_text and (analyze_clicked or st.session_state.get("last_analyzed_text") == current_text):
+        try:
+            result = predict(current_text)
+            label = result["label"]
+            confidence = result["confidence"]
 
-                with res_col1:
-                    if label == "spam":
-                        st.markdown(
-                            f"""
-                            <div class="result-spam">
-                                <h3>[SPAM DETECTED]</h3>
-                                <p>This message exhibits patterns commonly found in unwanted or malicious communications.</p>
-                            </div>
-                            """,
-                            unsafe_allow_html=True,
-                        )
-                    else:
-                        st.markdown(
-                            f"""
-                            <div class="result-ham">
-                                <h3>[SAFE (HAM)]</h3>
-                                <p>This message appears legitimate and safe.</p>
-                            </div>
-                            """,
-                            unsafe_allow_html=True,
-                        )
+            st.divider()
 
-                with res_col2:
-                    st.markdown("##### Prediction Confidence")
-                    st.progress(confidence)
-                    st.metric("Confidence Score", f"{confidence:.1%}")
+            res_col1, res_col2 = st.columns([2, 1])
 
-                # NLP Transformation Insights
-                with st.expander("View NLP Preprocessing Breakdown"):
-                    cleaned_tokens = transform_text(input_text)
-                    st.write("**Original Text Length:**", len(input_text), "characters")
-                    st.write("**Processed Tokens:**", cleaned_tokens if cleaned_tokens else "*(No alphanumeric tokens remaining)*")
+            with res_col1:
+                if label == "spam":
+                    st.markdown(
+                        f"""
+                        <div class="result-spam">
+                            <h3>🚨 SPAM DETECTED</h3>
+                            <p>This message exhibits patterns commonly found in unwanted or promotional communications.</p>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.markdown(
+                        f"""
+                        <div class="result-ham">
+                            <h3>✅ SAFE (HAM)</h3>
+                            <p>This message appears legitimate and safe.</p>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
 
-            except ValueError as exc:
-                st.warning(f"Warning: {exc}")
-            except Exception as exc:
-                st.error(f"An unexpected error occurred: {exc}")
+            with res_col2:
+                st.markdown("##### Prediction Confidence")
+                st.progress(confidence)
+                st.metric("Confidence Score", f"{confidence:.1%}")
+
+            # NLP Transformation Breakdown
+            with st.expander("🔍 View NLP Preprocessing Breakdown", expanded=False):
+                cleaned_tokens = transform_text(current_text)
+                st.write("**Original Character Length:**", len(current_text))
+                st.write(
+                    "**Processed Tokens:**",
+                    f"`{cleaned_tokens}`" if cleaned_tokens else "*(No alphanumeric tokens remaining)*",
+                )
+
+        except ValueError as exc:
+            st.warning(f"Input Error: {exc}")
+        except Exception as exc:
+            st.error(f"An unexpected error occurred: {exc}")
+    elif analyze_clicked and not current_text:
+        st.warning("Please enter some text before analyzing.")
 
 
 # ================= TAB 2: BATCH FILE PROCESSING =================
@@ -199,7 +253,11 @@ with tab2:
             if uploaded_file.name.endswith(".csv"):
                 df_upload = pd.read_csv(uploaded_file)
             else:
-                lines = [line.decode("utf-8").strip() for line in uploaded_file.readlines() if line.strip()]
+                lines = [
+                    line.decode("utf-8").strip()
+                    for line in uploaded_file.readlines()
+                    if line.strip()
+                ]
                 df_upload = pd.DataFrame({"text": lines})
 
             text_col = None
@@ -214,7 +272,7 @@ with tab2:
             st.info(f"Using column **'{text_col}'** for text analysis.")
 
             if st.button("Process Batch Messages", type="primary"):
-                with st.spinner("Analyzing messages..."):
+                with st.spinner("Analyzing batch messages..."):
                     results_list = []
                     for txt in df_upload[text_col]:
                         try:
@@ -227,7 +285,7 @@ with tab2:
                     df_results["predicted_label"] = [r["label"] for r in results_list]
                     df_results["confidence"] = [r["confidence"] for r in results_list]
 
-                    # Summary Metrics
+                    # Metrics
                     total_count = len(df_results)
                     spam_count = int((df_results["predicted_label"] == "spam").sum())
                     ham_count = int((df_results["predicted_label"] == "ham").sum())
@@ -241,10 +299,9 @@ with tab2:
 
                     st.dataframe(df_results, use_container_width=True)
 
-                    # Download button
                     csv_data = df_results.to_csv(index=False).encode("utf-8")
                     st.download_button(
-                        label="Download Classification Results (CSV)",
+                        label="Download Results (CSV)",
                         data=csv_data,
                         file_name="spam_classification_results.csv",
                         mime="text/csv",
